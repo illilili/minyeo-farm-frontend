@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
 
 type Order = {
@@ -10,12 +11,15 @@ type Order = {
   totalAmount: number;
 };
 
-export default function MyOrderDetailPage({ params }: { params: { id: string } }) {
+export default function MyOrderDetailPage() {
+  const params = useParams<{ id: string }>();
+  const orderId = params?.id;
   const [order, setOrder] = useState<Order | null>(null);
 
   useEffect(() => {
-    apiGet<Order>(`/api/my/orders/${params.id}`).then(setOrder).catch(() => setOrder(null));
-  }, [params.id]);
+    if (!orderId) return;
+    apiGet<Order>(`/api/my/orders/${orderId}`).then(setOrder).catch(() => setOrder(null));
+  }, [orderId]);
 
   if (!order) return <p>주문 정보를 불러오지 못했습니다.</p>;
 
@@ -28,3 +32,4 @@ export default function MyOrderDetailPage({ params }: { params: { id: string } }
     </section>
   );
 }
+
