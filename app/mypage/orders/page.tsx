@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { apiGet } from "@/lib/api";
+import { toOrderStatusLabel } from "@/lib/labels";
 
 type Order = {
   id: number;
@@ -25,7 +26,7 @@ export default function MyOrdersPage() {
       {orders.content.map((order) => (
         <Link key={order.id} href={`/mypage/orders/${order.id}`} className="card">
           <strong>{order.orderNo}</strong>
-          <p>{order.orderStatus}</p>
+          <p>{toOrderStatusLabel(order.orderStatus)}</p>
           <p>{order.totalAmount.toLocaleString()}원</p>
         </Link>
       ))}

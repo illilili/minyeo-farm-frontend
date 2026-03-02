@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { toOrderStatusLabel } from "@/lib/labels";
 
 type Order = {
   id: number;
@@ -27,9 +28,8 @@ export default function MyOrderDetailPage() {
     <section className="card">
       <h2>주문 상세</h2>
       <p>주문번호: {order.orderNo}</p>
-      <p>상태: {order.orderStatus}</p>
+      <p>상태: {toOrderStatusLabel(order.orderStatus)}</p>
       <p>결제금액: {order.totalAmount.toLocaleString()}원</p>
     </section>
   );
 }
-

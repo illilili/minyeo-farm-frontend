@@ -68,7 +68,7 @@ export default function SiteHeader() {
             소식
           </Link>
           {me?.role === "ADMIN" && (
-            <Link href="/admin/orders" className="nav-link">
+            <Link href="/admin" className="nav-link">
               관리자
             </Link>
           )}
@@ -78,17 +78,25 @@ export default function SiteHeader() {
           {me ? (
             <>
               <span className="auth-label">{me.name}님</span>
-              <Link href="/mypage/orders" className="nav-link">
+              <Link href="/mypage" className="nav-link">
                 마이페이지
+              </Link>
+              <Link href="/cart" className="nav-link">
+                장바구니
               </Link>
               <button type="button" onClick={logout}>
                 로그아웃
               </button>
             </>
           ) : (
-            <Link href="/login" className="btn btn-primary">
-              로그인
-            </Link>
+            <>
+              <Link href="/cart" className="nav-link">
+                장바구니
+              </Link>
+              <Link href="/login" className="btn btn-primary">
+                로그인
+              </Link>
+            </>
           )}
         </div>
       </div>

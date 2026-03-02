@@ -3,12 +3,23 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import MarkdownRenderer from "@/components/MarkdownRenderer";
 
 type Post = {
   id: number;
   category: string;
   title: string;
   content: string;
+  authorName: string;
+  viewCount: number;
+  createdAt: string;
+};
+
+const categoryLabel: Record<string, string> = {
+  NOTICE: "공지",
+  HARVEST: "수확",
+  SHIPPING: "배송",
+  RESTOCK: "재입고"
 };
 
 export default function PostDetailPage() {
@@ -26,10 +37,13 @@ export default function PostDetailPage() {
   return (
     <section className="card">
       <h2>
-        [{post.category}] {post.title}
+        [{categoryLabel[post.category] ?? post.category}] {post.title}
       </h2>
-      <p>{post.content}</p>
+      <p className="muted">
+        작성자: {post.authorName} | 작성일: {new Date(post.createdAt).toLocaleDateString("ko-KR")} | 조회수:{" "}
+        {post.viewCount.toLocaleString()}
+      </p>
+      <MarkdownRenderer content={post.content} className="detail-markdown-center" />
     </section>
   );
 }
-

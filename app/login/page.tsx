@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { toOrderStatusLabel } from "@/lib/labels";
 
 type LoginUrlResponse = {
   loginUrl: string;
@@ -116,7 +117,6 @@ export default function LoginPage() {
     <section className="stack">
       <article className="card stack">
         <h2>로그인</h2>
-        <p className="muted">회원/관리자는 네이버 로그인으로 이용할 수 있습니다.</p>
         <div className="hero-actions">
           <button type="button" className="btn btn-primary" onClick={startNaverLogin} disabled={loading}>
             {loading ? "로그인 준비중..." : "네이버 로그인"}
@@ -156,7 +156,7 @@ export default function LoginPage() {
         {guestOrder && (
           <div className="card">
             <p>주문번호: {guestOrder.orderNo}</p>
-            <p>상태: {guestOrder.orderStatus}</p>
+            <p>상태: {toOrderStatusLabel(guestOrder.orderStatus)}</p>
             <p>결제금액: {guestOrder.totalAmount.toLocaleString()}원</p>
             <p className="muted">주문일시: {new Date(guestOrder.createdAt).toLocaleString("ko-KR")}</p>
           </div>
@@ -168,4 +168,3 @@ export default function LoginPage() {
     </section>
   );
 }
-
