@@ -1,6 +1,7 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Script from "next/script";
 import { useSearchParams } from "next/navigation";
 import { apiDelete, apiGet, apiPost } from "@/lib/api";
 import { removeGuestCartItem } from "@/lib/cart";
@@ -27,6 +28,64 @@ type OrderResponse = {
   totalAmount: number;
 };
 
+type PaymentReadyResponse = {
+  paymentId: number;
+  tossOrderId: string;
+  status: "READY" | "APPROVED" | "FAILED" | "CANCELED";
+};
+
+type Me = {
+  id: number;
+  name?: string;
+  email?: string;
+  phone?: string;
+};
+
+type TossPaymentsRequestParams = {
+  method: "CARD";
+  amount: {
+    currency: "KRW";
+    value: number;
+  };
+  orderId: string;
+  orderName: string;
+  customerName: string;
+  customerEmail?: string;
+  successUrl: string;
+  failUrl: string;
+};
+
+type TossPaymentWindow = {
+  requestPayment(params: TossPaymentsRequestParams): Promise<void> | void;
+};
+
+type TossPaymentsInstance = {
+  payment(params: { customerKey: string }): TossPaymentWindow;
+};
+
+type TossPaymentsFactory = (clientKey: string) => TossPaymentsInstance;
+
+type DaumPostcodeData = {
+  zonecode: string;
+  roadAddress: string;
+  jibunAddress: string;
+};
+
+type DaumPostcodeConstructor = new (options: {
+  oncomplete: (data: DaumPostcodeData) => void;
+}) => {
+  open: () => void;
+};
+
+declare global {
+  interface Window {
+    TossPayments?: TossPaymentsFactory;
+    daum?: {
+      Postcode: DaumPostcodeConstructor;
+    };
+  }
+}
+
 type OrdererForm = {
   buyerName: string;
   buyerPhone: string;
@@ -40,15 +99,15 @@ type OrdererForm = {
 };
 
 const initialForm: OrdererForm = {
-  buyerName: "비회원고객",
-  buyerPhone: "01012345678",
-  buyerEmail: "guest@example.com",
-  receiverName: "수령인",
-  receiverPhone: "01012345678",
-  receiverZipcode: "12345",
-  receiverAddress1: "서울시 강남구",
-  receiverAddress2: "101호",
-  deliveryRequest: "문 앞에 놓아주세요."
+  buyerName: "",
+  buyerPhone: "",
+  buyerEmail: "",
+  receiverName: "",
+  receiverPhone: "",
+  receiverZipcode: "",
+  receiverAddress1: "",
+  receiverAddress2: "",
+  deliveryRequest: ""
 };
 
 export default function OrderPage() {
@@ -56,25 +115,46 @@ export default function OrderPage() {
   const productIdFromQuery = searchParams.get("productId");
   const quantityFromQuery = searchParams.get("quantity");
   const fromCart = searchParams.get("from") === "cart";
+  const isDirectOrderFromProduct = !fromCart && productIdFromQuery !== null;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
   const [checkoutDraft, setCheckoutDraft] = useState<CheckoutDraftItem[]>([]);
   const [quantity, setQuantity] = useState<number>(1);
   const [form, setForm] = useState<OrdererForm>(initialForm);
-  const [order, setOrder] = useState<OrderResponse | null>(null);
-  const [message, setMessage] = useState<string>("");
+  const [agreeCancelPolicy, setAgreeCancelPolicy] = useState(false);
   const [error, setError] = useState<string>("");
-  const [isCreating, setIsCreating] = useState(false);
   const [isPaying, setIsPaying] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
+
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setMe(null);
+      return;
+    }
+
+    apiGet<Me>("/api/me")
+      .then((data) => {
+        setMe(data);
+        setForm((prev) => ({
+          ...prev,
+          buyerName: prev.buyerName || data.name || "",
+          buyerEmail: prev.buyerEmail || data.email || ""
+        }));
+      })
+      .catch(() => setMe(null));
+  }, []);
 
   useEffect(() => {
     if (!fromCart) {
       setCheckoutDraft([]);
       return;
     }
+
     const raw = sessionStorage.getItem("checkoutDraft");
     if (!raw) return;
+
     try {
       const parsed = JSON.parse(raw) as CheckoutDraftItem[];
       const normalized = parsed.filter((item) => item.productId > 0 && item.quantity > 0);
@@ -98,19 +178,53 @@ export default function OrderPage() {
         if (data.content.length > 0) {
           const queryId = Number(productIdFromQuery);
           const exists = data.content.some((product) => product.id === queryId);
+          if (isDirectOrderFromProduct && !exists) {
+            setError("선택한 상품 정보를 찾을 수 없습니다.");
+            return;
+          }
           setSelectedProductId(exists ? queryId : data.content[0].id);
         }
       })
       .catch((e: Error) => setError(e.message || "상품을 불러오지 못했습니다."));
-  }, [productIdFromQuery]);
+  }, [isDirectOrderFromProduct, productIdFromQuery]);
 
   const selectedProduct = useMemo(
     () => products.find((product) => product.id === selectedProductId),
     [products, selectedProductId]
   );
 
-  async function createOrder(e: FormEvent<HTMLFormElement>) {
+  const orderName = useMemo(() => {
+    if (fromCart) {
+      if (checkoutDraft.length === 0) return "민여농장 상품";
+      const firstProduct = products.find((p) => p.id === checkoutDraft[0].productId);
+      const firstName = firstProduct?.name ?? "민여농장 상품";
+      const extraCount = checkoutDraft.length - 1;
+      return extraCount > 0 ? `${firstName} 외 ${extraCount}건` : firstName;
+    }
+    return selectedProduct?.name ?? "민여농장 상품";
+  }, [checkoutDraft, fromCart, products, selectedProduct]);
+
+  function openPostcodeSearch() {
+    if (!window.daum?.Postcode) {
+      setError("주소 검색 스크립트를 불러오지 못했습니다.");
+      return;
+    }
+
+    new window.daum.Postcode({
+      oncomplete: (data) => {
+        const address = data.roadAddress || data.jibunAddress || "";
+        setForm((prev) => ({
+          ...prev,
+          receiverZipcode: data.zonecode,
+          receiverAddress1: address
+        }));
+      }
+    }).open();
+  }
+
+  async function payNow(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     if (!fromCart && !selectedProductId) {
       setError("주문할 상품을 선택해주세요.");
       return;
@@ -119,9 +233,22 @@ export default function OrderPage() {
       setError("장바구니에서 주문할 상품을 선택해주세요.");
       return;
     }
+    if (!agreeCancelPolicy) {
+      setError("주문 준비 이후 환불 제한 정책에 동의해주세요.");
+      return;
+    }
 
-    setIsCreating(true);
-    setMessage("");
+    const tossClientKey = process.env.NEXT_PUBLIC_TOSS_CLIENT_KEY;
+    if (!tossClientKey) {
+      setError("NEXT_PUBLIC_TOSS_CLIENT_KEY 환경변수가 필요합니다.");
+      return;
+    }
+    if (!window.TossPayments) {
+      setError("토스 결제 스크립트를 불러오지 못했습니다.");
+      return;
+    }
+
+    setIsPaying(true);
     setError("");
 
     try {
@@ -129,8 +256,7 @@ export default function OrderPage() {
         ...form,
         items: fromCart ? checkoutDraft : [{ productId: selectedProductId, quantity }]
       });
-      setOrder(created);
-      setMessage("주문이 생성되었습니다. 아래 결제하기 버튼을 눌러주세요.");
+
       if (fromCart) {
         const hasToken = !!localStorage.getItem("accessToken");
         if (hasToken) {
@@ -140,29 +266,28 @@ export default function OrderPage() {
         }
         sessionStorage.removeItem("checkoutDraft");
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "주문 생성에 실패했습니다.");
-    } finally {
-      setIsCreating(false);
-    }
-  }
 
-  async function payNow() {
-    if (!order) return;
-    setIsPaying(true);
-    setMessage("");
-    setError("");
-
-    try {
-      await apiPost("/api/payments/toss/ready", { orderId: order.id });
-      await apiPost("/api/payments/toss/confirm", {
-        paymentKey: `pay_${order.orderNo}`,
-        orderId: order.orderNo,
-        amount: order.totalAmount
+      const ready = await apiPost<PaymentReadyResponse>("/api/payments/toss/ready", { orderId: created.id });
+      const tossPayments = window.TossPayments(tossClientKey);
+      const payment = tossPayments.payment({
+        customerKey: me ? `user_${me.id}` : `guest_${created.orderNo}`
       });
-      setMessage("결제 승인 완료");
+
+      await payment.requestPayment({
+        method: "CARD",
+        amount: {
+          currency: "KRW",
+          value: created.totalAmount
+        },
+        orderId: ready.tossOrderId,
+        orderName,
+        customerName: form.buyerName || "주문자",
+        customerEmail: form.buyerEmail || undefined,
+        successUrl: `${window.location.origin}/payment/success`,
+        failUrl: `${window.location.origin}/payment/fail`
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "결제 승인에 실패했습니다.");
+      setError(err instanceof Error ? err.message : "결제 요청에 실패했습니다.");
     } finally {
       setIsPaying(false);
     }
@@ -170,6 +295,12 @@ export default function OrderPage() {
 
   return (
     <section className="stack">
+      <Script src="https://js.tosspayments.com/v2/standard" strategy="afterInteractive" />
+      <Script
+        src="https://t1.daumcdn.net/mapjsapi/bundle/postcode/prod/postcode.v2.js"
+        strategy="afterInteractive"
+      />
+
       <article className="card stack">
         <h2>주문/결제</h2>
         <p className="muted">배송비 3,000원 / 50,000원 이상 무료</p>
@@ -179,7 +310,7 @@ export default function OrderPage() {
         <h3>상품 및 수량</h3>
         {fromCart ? (
           <>
-            {checkoutDraft.length === 0 && <p className="muted">선택된 장바구니 상품이 없습니다.</p>}
+            {checkoutDraft.length === 0 && <p className="muted">선택한 장바구니 상품이 없습니다.</p>}
             {checkoutDraft.map((item) => {
               const product = products.find((p) => p.id === item.productId);
               if (!product) return null;
@@ -187,14 +318,27 @@ export default function OrderPage() {
                 <div key={item.productId} className="admin-item">
                   <strong>{product.name}</strong>
                   <p className="muted">
-                    {product.price.toLocaleString()}원 x {item.quantity}개 ={" "}
-                    {(product.price * item.quantity).toLocaleString()}원
+                    {product.price.toLocaleString()}원 x {item.quantity}개 = {(product.price * item.quantity).toLocaleString()}원
                   </p>
                 </div>
               );
             })}
           </>
-        ) : (
+        ) : isDirectOrderFromProduct ? (
+          <>
+            {selectedProduct ? (
+              <div className="admin-item">
+                <strong>{selectedProduct.name}</strong>
+                <p className="muted">
+                  {selectedProduct.price.toLocaleString()}원 x {quantity}개 ={" "}
+                  {(selectedProduct.price * quantity).toLocaleString()}원
+                </p>
+              </div>
+            ) : (
+              <p className="muted">상품 정보를 불러오는 중입니다.</p>
+            )}
+          </>
+          ) : (
           <>
             <div className="form-row">
               <label className="field">
@@ -228,9 +372,9 @@ export default function OrderPage() {
       </article>
 
       <article className="card stack">
-        <h3>주문자/수령인 정보</h3>
-        <form className="stack" onSubmit={createOrder}>
-          <div className="form-row">
+        <h3>주문자 / 수령자 정보</h3>
+        <form className="stack" onSubmit={payNow}>
+          <div className="form-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <label className="field">
               <span>주문자 이름</span>
               <input
@@ -243,11 +387,16 @@ export default function OrderPage() {
               <span>주문자 연락처</span>
               <input
                 value={form.buyerPhone}
-                onChange={(e) => setForm((prev) => ({ ...prev, buyerPhone: e.target.value }))}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, buyerPhone: e.target.value.replace(/\D/g, "") }))
+                }
+                inputMode="numeric"
+                pattern="[0-9]*"
                 required
               />
             </label>
           </div>
+
           <label className="field">
             <span>주문자 이메일</span>
             <input
@@ -256,9 +405,10 @@ export default function OrderPage() {
               onChange={(e) => setForm((prev) => ({ ...prev, buyerEmail: e.target.value }))}
             />
           </label>
-          <div className="form-row">
+
+          <div className="form-row" style={{ gridTemplateColumns: "1fr 1fr" }}>
             <label className="field">
-              <span>수령인 이름</span>
+              <span>수령자 이름</span>
               <input
                 value={form.receiverName}
                 onChange={(e) => setForm((prev) => ({ ...prev, receiverName: e.target.value }))}
@@ -266,39 +416,43 @@ export default function OrderPage() {
               />
             </label>
             <label className="field">
-              <span>수령인 연락처</span>
+              <span>수령자 연락처</span>
               <input
                 value={form.receiverPhone}
-                onChange={(e) => setForm((prev) => ({ ...prev, receiverPhone: e.target.value }))}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, receiverPhone: e.target.value.replace(/\D/g, "") }))
+                }
+                inputMode="numeric"
+                pattern="[0-9]*"
                 required
               />
             </label>
           </div>
+
           <div className="form-row">
             <label className="field">
               <span>우편번호</span>
-              <input
-                value={form.receiverZipcode}
-                onChange={(e) => setForm((prev) => ({ ...prev, receiverZipcode: e.target.value }))}
-                required
-              />
+              <input value={form.receiverZipcode} placeholder="우편번호 검색" readOnly required />
             </label>
-            <label className="field">
-              <span>상세 주소</span>
-              <input
-                value={form.receiverAddress2}
-                onChange={(e) => setForm((prev) => ({ ...prev, receiverAddress2: e.target.value }))}
-              />
-            </label>
+            <button type="button" className="btn" onClick={openPostcodeSearch}>
+              우편번호 검색
+            </button>
           </div>
+
           <label className="field">
             <span>주소</span>
+            <input value={form.receiverAddress1} placeholder="주소 검색으로 입력" readOnly required />
+          </label>
+
+          <label className="field">
+            <span>상세 주소</span>
             <input
-              value={form.receiverAddress1}
-              onChange={(e) => setForm((prev) => ({ ...prev, receiverAddress1: e.target.value }))}
+              value={form.receiverAddress2}
+              onChange={(e) => setForm((prev) => ({ ...prev, receiverAddress2: e.target.value }))}
               required
             />
           </label>
+
           <label className="field">
             <span>배송 요청사항</span>
             <textarea
@@ -307,24 +461,24 @@ export default function OrderPage() {
               onChange={(e) => setForm((prev) => ({ ...prev, deliveryRequest: e.target.value }))}
             />
           </label>
-          <button type="submit" className="btn-primary" disabled={isCreating || products.length === 0}>
-            {isCreating ? "주문 생성중..." : "주문 생성"}
+
+          <label className="cart-select-all">
+            <input
+              type="checkbox"
+              checked={agreeCancelPolicy}
+              onChange={(e) => setAgreeCancelPolicy(e.target.checked)}
+            />
+            <span>
+              주문 준비중 이후 환불은 자동 처리되지 않으며, 환불 규정에 따라 고객센터 문의 후 수동 처리됩니다.
+            </span>
+          </label>
+
+          <button type="submit" className="btn-primary" disabled={isPaying || products.length === 0}>
+            {isPaying ? "결제 진행중.." : "결제하기"}
           </button>
         </form>
       </article>
 
-      {order && (
-        <article className="card stack">
-          <h3>결제</h3>
-          <p>주문번호: {order.orderNo}</p>
-          <p>결제금액: {order.totalAmount.toLocaleString()}원</p>
-          <button type="button" className="btn-primary" onClick={payNow} disabled={isPaying}>
-            {isPaying ? "결제 처리중..." : "결제하기"}
-          </button>
-        </article>
-      )}
-
-      {message && <p>{message}</p>}
       {error && <p className="error">{error}</p>}
     </section>
   );

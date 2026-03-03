@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -46,13 +46,16 @@ export default function CartPage() {
       setItems([]);
       return;
     }
+
     const products = await Promise.all(
       guestItems.map((item) => apiGet<ProductDetail>(`/api/products/${item.productId}`).catch(() => null))
     );
+
     const mapped = guestItems
       .map((item) => {
         const product = products.find((p) => p?.id === item.productId);
         if (!product) return null;
+
         return {
           productId: product.id,
           productName: product.name,
@@ -64,6 +67,7 @@ export default function CartPage() {
         } as CartItem;
       })
       .filter((item): item is CartItem => item !== null);
+
     setItems(mapped);
   }
 
@@ -86,7 +90,7 @@ export default function CartPage() {
             clearGuestCart();
             return loadServerCart();
           })
-          .then(() => setMessage("비회원 장바구니가 계정 장바구니로 합쳐졌습니다."))
+          .then(() => setMessage("비회원 장바구니가 계정 장바구니로 동기화되었습니다."))
           .catch((e: Error) => setError(e.message));
       } else {
         loadServerCart().catch((e: Error) => setError(e.message));
@@ -127,18 +131,22 @@ export default function CartPage() {
     const selected = items
       .filter((item) => selectedProductIds.includes(item.productId))
       .map((item) => ({ productId: item.productId, quantity: item.quantity }));
+
     if (selected.length === 0) {
       setError("주문할 상품을 선택해주세요.");
       return;
     }
+
     sessionStorage.setItem("checkoutDraft", JSON.stringify(selected));
     router.push("/order?from=cart");
   }
 
   async function updateQuantity(productId: number, quantity: number) {
     if (quantity < 1) return;
+
     setMessage("");
     setError("");
+
     try {
       if (isLoggedIn) {
         const data = await apiPatch<CartItem[]>(`/api/my/cart/${productId}`, { quantity });
@@ -155,6 +163,7 @@ export default function CartPage() {
   async function removeItem(productId: number) {
     setMessage("");
     setError("");
+
     try {
       if (isLoggedIn) {
         const data = await apiDelete(`/api/my/cart/${productId}`).then(() => apiGet<CartItem[]>("/api/my/cart"));
@@ -172,14 +181,7 @@ export default function CartPage() {
 
   return (
     <section className="stack">
-      <article className="card stack">
-        <h2>장바구니</h2>
-        <p className="muted">
-          {isLoggedIn
-            ? "로그인 장바구니입니다. 계정에 저장되어 다른 기기에서도 확인할 수 있습니다."
-            : "비회원 장바구니입니다. 현재 브라우저에만 저장됩니다."}
-        </p>
-      </article>
+      <h2>장바구니</h2>
 
       <article className="card stack">
         {items.length > 0 && (
@@ -188,7 +190,9 @@ export default function CartPage() {
             <span>전체 선택</span>
           </label>
         )}
+
         {items.length === 0 && <p className="muted">장바구니에 담긴 상품이 없습니다.</p>}
+
         {items.map((item) => (
           <div key={item.productId} className="admin-item">
             <div className="cart-item-row">
@@ -199,6 +203,7 @@ export default function CartPage() {
                   onChange={(e) => toggleSelect(item.productId, e.target.checked)}
                 />
               </label>
+
               {item.thumbnailUrl ? (
                 <img src={item.thumbnailUrl} alt={item.productName} className="cart-thumb" />
               ) : (
@@ -206,6 +211,7 @@ export default function CartPage() {
                   없음
                 </div>
               )}
+
               <div className="stack" style={{ gap: 6 }}>
                 <strong>{item.productName}</strong>
                 <p className="muted">

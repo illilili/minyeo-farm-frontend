@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { apiGet, apiPatch, apiPost } from "@/lib/api";
@@ -41,6 +41,8 @@ type OrderDetail = {
   shippingFee: number;
   totalAmount: number;
   createdAt: string;
+  courierCode?: string;
+  trackingNumber?: string;
   items: OrderItem[];
 };
 
@@ -96,7 +98,7 @@ export default function MyPage() {
         content
       });
 
-      setMessage("후기가 등록되었습니다.");
+      setMessage("후기를 등록했습니다.");
       setContentByItem((prev) => ({ ...prev, [orderItemId]: "" }));
       if (selectedOrderId) await refreshDetail(selectedOrderId);
     } catch (e) {
@@ -106,11 +108,13 @@ export default function MyPage() {
 
   async function cancelOrder(orderId: number) {
     if (!confirm("주문을 취소하시겠습니까?")) return;
+
     setMessage("");
     setError("");
+
     try {
       await apiPatch(`/api/my/orders/${orderId}/cancel`, {});
-      setMessage("주문이 취소되었습니다.");
+      setMessage("주문을 취소했습니다.");
       await refreshOrders();
       if (selectedOrderId) {
         await refreshDetail(selectedOrderId);
@@ -124,8 +128,8 @@ export default function MyPage() {
     const paid = orders.filter((order) => order.orderStatus === "PAID").length;
     const shipping = orders.filter((order) => order.orderStatus === "SHIPPING").length;
     const delivered = orders.filter((order) => order.orderStatus === "DELIVERED").length;
-    const writable =
-      detail?.items.filter((item) => item.reviewWritable).length ?? 0;
+    const writable = detail?.items.filter((item) => item.reviewWritable).length ?? 0;
+
     return {
       totalOrders: orders.length,
       paid,
@@ -138,6 +142,7 @@ export default function MyPage() {
   return (
     <section className="stack">
       <h2>마이페이지</h2>
+
       <div className="mypage-grid">
         <aside className="stack">
           <article className="card stack mypage-profile-card">
@@ -145,7 +150,7 @@ export default function MyPage() {
             {!me && <p className="muted">회원 정보를 불러오는 중...</p>}
             {me && (
               <div className="mypage-profile-inline">
-                <strong>{me.name} 님</strong>
+                <strong>{me.name}님</strong>
                 <div className="mypage-profile-meta muted">
                   <span>이메일: {me.email || "-"}</span>
                   <span className="meta-divider">|</span>
@@ -219,6 +224,12 @@ export default function MyPage() {
                 결제금액: {detail.totalAmount.toLocaleString()}원 (상품 {detail.subtotalAmount.toLocaleString()}원 + 배송비{" "}
                 {detail.shippingFee.toLocaleString()}원)
               </p>
+              {(detail.courierCode || detail.trackingNumber) && (
+                <p className="muted">
+                  택배 정보: {detail.courierCode || "-"} / {detail.trackingNumber || "-"}
+                </p>
+              )}
+
               {(detail.orderStatus === "PENDING" || detail.orderStatus === "PAID") && (
                 <div className="admin-actions">
                   <button type="button" onClick={() => cancelOrder(detail.id)}>
@@ -226,6 +237,14 @@ export default function MyPage() {
                   </button>
                 </div>
               )}
+              {(detail.orderStatus === "PREPARING" ||
+                detail.orderStatus === "SHIPPING" ||
+                detail.orderStatus === "DELIVERED") && (
+                <p className="muted">
+                  환불 문의는 고객센터 전화/문자로 접수 부탁드립니다.
+                </p>
+              )}
+
               <p className="muted">작성 가능한 후기: {summary.writable}건</p>
 
               {detail.items.map((item) => (
@@ -234,6 +253,7 @@ export default function MyPage() {
                   <p className="muted">
                     {item.quantity}개 x {item.unitPrice.toLocaleString()}원 = {item.lineAmount.toLocaleString()}원
                   </p>
+
                   {item.reviewWritable ? (
                     <form className="stack" onSubmit={(e) => submitReview(e, item.orderItemId)}>
                       <label className="field">
@@ -251,6 +271,7 @@ export default function MyPage() {
                           ))}
                         </select>
                       </label>
+
                       <label className="field">
                         <span>후기 내용</span>
                         <textarea
@@ -262,12 +283,13 @@ export default function MyPage() {
                           placeholder="상품 후기를 작성해주세요."
                         />
                       </label>
+
                       <button type="submit" className="btn-primary">
                         후기 작성
                       </button>
                     </form>
                   ) : (
-                    <p className="muted">후기 작성 대상이 아니거나 이미 작성 완료된 상품입니다.</p>
+                    <p className="muted">후기 작성 대상이 아니거나 이미 작성된 상품입니다.</p>
                   )}
                 </div>
               ))}

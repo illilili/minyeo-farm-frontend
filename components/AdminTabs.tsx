@@ -1,12 +1,12 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const tabs = [
+  { href: "/admin/orders", label: "주문 관리" },
   { href: "/admin/products", label: "상품 관리" },
-  { href: "/admin/posts", label: "소식 관리" },
-  { href: "/admin/orders", label: "주문 관리" }
+  { href: "/admin/posts", label: "소식 관리" }
 ];
 
 export default function AdminTabs() {
@@ -25,4 +25,3 @@ export default function AdminTabs() {
     </nav>
   );
 }
-

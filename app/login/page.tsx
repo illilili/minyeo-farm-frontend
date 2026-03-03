@@ -1,9 +1,9 @@
-"use client";
+﻿"use client";
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiGet } from "@/lib/api";
+import { apiGet, apiPatch } from "@/lib/api";
 import { toOrderStatusLabel } from "@/lib/labels";
 
 type LoginUrlResponse = {
@@ -11,6 +11,7 @@ type LoginUrlResponse = {
 };
 
 type GuestOrder = {
+  id: number;
   orderNo: string;
   orderStatus: string;
   totalAmount: number;
@@ -23,9 +24,9 @@ export default function LoginPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [lookupLoading, setLookupLoading] = useState(false);
-  const [orderNo, setOrderNo] = useState("");
   const [phone, setPhone] = useState("");
-  const [guestOrder, setGuestOrder] = useState<GuestOrder | null>(null);
+  const [email, setEmail] = useState("");
+  const [guestOrders, setGuestOrders] = useState<GuestOrder[]>([]);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -36,6 +37,14 @@ export default function LoginPage() {
   const apiOrigin = useMemo(() => {
     return new URL(apiBase).origin;
   }, [apiBase]);
+
+  async function fetchGuestOrders() {
+    const query = new URLSearchParams({
+      phone: phone.trim(),
+      email: email.trim()
+    }).toString();
+    return apiGet<GuestOrder[]>(`/api/orders/guest?${query}`);
+  }
 
   useEffect(() => {
     function onMessage(event: MessageEvent) {
@@ -91,31 +100,49 @@ export default function LoginPage() {
     }
   }
 
-  async function lookupGuestOrder(event: FormEvent<HTMLFormElement>) {
+  async function lookupGuestOrders(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLookupLoading(true);
     setError("");
     setMessage("");
 
     try {
-      const query = new URLSearchParams({
-        orderNo: orderNo.trim(),
-        phone: phone.trim()
-      }).toString();
-      const data = await apiGet<GuestOrder>(`/api/orders/guest?${query}`);
-      setGuestOrder(data);
-      setMessage("비회원 주문 정보를 불러왔습니다.");
+      const data = await fetchGuestOrders();
+      setGuestOrders(data);
+      if (data.length === 0) {
+        setMessage("일치하는 비회원 주문이 없습니다.");
+      } else {
+        setMessage(`비회원 주문 ${data.length}건을 불러왔습니다.`);
+      }
     } catch (e) {
-      setGuestOrder(null);
+      setGuestOrders([]);
       setError(e instanceof Error ? e.message : "비회원 주문 조회에 실패했습니다.");
     } finally {
       setLookupLoading(false);
     }
   }
 
+  async function cancelGuestOrder(orderId: number) {
+    if (!confirm("결제완료 주문을 취소하시겠습니까?")) return;
+
+    setError("");
+    setMessage("");
+    try {
+      await apiPatch(`/api/orders/guest/${orderId}/cancel`, {
+        phone: phone.trim(),
+        email: email.trim()
+      });
+      const refreshed = await fetchGuestOrders();
+      setGuestOrders(refreshed);
+      setMessage("주문을 취소했습니다.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "비회원 주문 취소에 실패했습니다.");
+    }
+  }
+
   return (
     <section className="stack">
-      <article className="card stack">
+      <article className="card stack" style={{ textAlign: "center", placeItems: "center" }}>
         <h2>로그인</h2>
         <div className="hero-actions">
           <button type="button" className="btn btn-primary" onClick={startNaverLogin} disabled={loading}>
@@ -129,16 +156,7 @@ export default function LoginPage() {
 
       <article className="card stack">
         <h3>비회원 주문 조회</h3>
-        <form className="stack" onSubmit={lookupGuestOrder}>
-          <label className="field">
-            <span>주문번호</span>
-            <input
-              value={orderNo}
-              onChange={(e) => setOrderNo(e.target.value)}
-              placeholder="예: O202602280001"
-              required
-            />
-          </label>
+        <form className="stack" onSubmit={lookupGuestOrders}>
           <label className="field">
             <span>연락처</span>
             <input
@@ -148,17 +166,36 @@ export default function LoginPage() {
               required
             />
           </label>
+          <label className="field">
+            <span>이메일</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="예: guest@example.com"
+              required
+            />
+          </label>
           <button type="submit" disabled={lookupLoading}>
             {lookupLoading ? "조회중..." : "비회원 주문 조회"}
           </button>
         </form>
 
-        {guestOrder && (
-          <div className="card">
-            <p>주문번호: {guestOrder.orderNo}</p>
-            <p>상태: {toOrderStatusLabel(guestOrder.orderStatus)}</p>
-            <p>결제금액: {guestOrder.totalAmount.toLocaleString()}원</p>
-            <p className="muted">주문일시: {new Date(guestOrder.createdAt).toLocaleString("ko-KR")}</p>
+        {guestOrders.length > 0 && (
+          <div className="stack">
+            {guestOrders.map((order) => (
+              <div key={order.id} className="card">
+                <p>주문번호: {order.orderNo}</p>
+                <p>상태: {toOrderStatusLabel(order.orderStatus)}</p>
+                <p>결제금액: {order.totalAmount.toLocaleString()}원</p>
+                <p className="muted">주문일시: {new Date(order.createdAt).toLocaleString("ko-KR")}</p>
+                {order.orderStatus === "PAID" && (
+                  <button type="button" onClick={() => cancelGuestOrder(order.id)}>
+                    주문 취소
+                  </button>
+                )}
+              </div>
+            ))}
           </div>
         )}
       </article>

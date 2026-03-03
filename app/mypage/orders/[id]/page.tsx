@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
@@ -10,6 +10,8 @@ type Order = {
   orderNo: string;
   orderStatus: string;
   totalAmount: number;
+  courierCode?: string;
+  trackingNumber?: string;
 };
 
 export default function MyOrderDetailPage() {
@@ -30,6 +32,11 @@ export default function MyOrderDetailPage() {
       <p>주문번호: {order.orderNo}</p>
       <p>상태: {toOrderStatusLabel(order.orderStatus)}</p>
       <p>결제금액: {order.totalAmount.toLocaleString()}원</p>
+      {(order.courierCode || order.trackingNumber) && (
+        <p>
+          택배 정보: {order.courierCode || "-"} / {order.trackingNumber || "-"}
+        </p>
+      )}
     </section>
   );
 }
